@@ -1,2 +1,2 @@
-# geoo
-Geo-parser open-source application
+# geopack
+Geo-parser and geo-tagger open-source application
