@@ -66,7 +66,7 @@ __LANG = {
 API_SCHEMA = {
     'version': os.environ.get('API_VERSION', '0.0.1'),
     'endpoints': {
-        'geoparse': {
+        'geotag': {
             'methods': ['GET', 'POST'],
             'params': {
                 'text': {
@@ -81,7 +81,7 @@ API_SCHEMA = {
         'geoplace': {
             'methods': ['GET', 'POST'],
             'params': {
-                'text': {
+                'query': {
                     'type': 'str',
                     'required': True,
                     'help_text': 'Place name (address, town/city, neighborhood, etc.)'

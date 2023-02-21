@@ -19,142 +19,7 @@ STATUS_OK = 'OK'
 API_CONF = RecordDict(**settings.API_SCHEMA)
 
 
-# Functions that do not require creation of TextProcessor
-# or TextAnalyzer.
-FUNCS = ['custom_model', 'keyphrases', 'named_entities']
-# Modules to look actions for.
-MODULES = ('nlp.processors', 'nlp.extractors',)
 NO_SUCH_ACTION = "Undefined action: `{}`"
-
-
-def get_kwargs(**params):
-    """
-    Separates kwargs for an instance and its method.
-
-    :return: (<dict>, <dict>)
-    """
-    inst_kwarg_names = ('custom_model', 'max_length')
-
-    method_kwargs = {}
-    cls_kwargs = {}
-    for kw, val in params.items():
-        if kw in inst_kwarg_names:
-            cls_kwargs.update({kw: val})
-        else:
-            method_kwargs.update({kw: val})
-
-    return cls_kwargs, method_kwargs
-
-
-def get_class(action):
-    TextProcessorClass = None
-    for class_ in (TextProcessor, TextAnalyzer, Trainer):
-        try:
-            getattr(class_, action)
-        except AttributeError:
-            continue
-        else:
-            TextProcessorClass = class_
-
-    return TextProcessorClass
-
-
-def get_method(action, instance):
-    """
-    :param action: <str>
-    :param instance: <cls>
-
-    :return: <func>
-    """
-    try:
-        return getattr(instance, action)
-    except AttributeError:
-        return None
-
-
-def clean_action_params(action_def):
-    if not isinstance(action_def, (str, dict)):
-        err_msg = \
-          "Pipeline item should be <str> or <dict>, currently {} ({})" \
-          .format(type(action_def).__name__, str(action_def))
-        raise TypeError(err_msg)
-
-    if isinstance(action_def, str):
-        return action_def, {}
-
-    try:
-        action = action_def['action']
-    except KeyError as exc:
-        msg = "Pipeline item should include `action`. Current value: {}" \
-              .format(str(action_def))
-        raise KeyError(msg) from exc
-
-    params = action_def.get("params", {})
-    if not isinstance(params, dict):
-        try:
-            params = json.loads(params)
-        except json.JSONDecodeError as exc:
-            msg = "`params` should be proper JSON: {}".format(str(params))
-            raise TypeError(msg) from exc
-
-    return action, params
-
-
-def _do_process_text(text, lang, action, **params):
-    method = None
-    if action in FUNCS:
-        for module in MODULES:
-            try:
-                method = getattr(__import__(module), action)
-            except Exception as err:
-                pass
-
-        if not method:
-            return False, NO_SUCH_ACTION.format(action)
-
-        kwargs_process = params.copy()
-        # `lang` isn't required in functions and resides in kwargs.
-        if lang:
-            kwargs_process.update(lang=lang)
-    else:
-        # For class methods process instance's and method's kwargs separately.
-        kwargs_init, kwargs_process = get_kwargs(**params)
-        TextProcessorClass = get_class(action)
-        if not TextProcessorClass:
-            return False, NO_SUCH_ACTION.format(action)
-
-        TextProcessorInstance = TextProcessorClass(lang=lang, **kwargs_init)
-        method = get_method(action, TextProcessorInstance)
-
-    try:
-        processed = method(text, **kwargs_process)
-    except Exception as err:
-        return False, f'{err} ({type(err).__name__})'
-
-    return True, processed
-
-
-def process_text(text: str, pipeline: list, **kwargs) -> list:
-    """Text processing pipeline - proxy func."""
-    lang = kwargs.pop('lang', None)
-    result = []
-    for action_def in pipeline:
-        try:
-            action, params = clean_action_params(action_def)
-        except Exception as exc:
-            result.append({
-                'action': str(action_def),
-                'success': False,
-                'data': {"error": "{}: {}".format(type(exc).__name__, str(exc))}
-            })
-            continue
-
-        success, data = _do_process_text(text, lang, action, **params)
-        if not success:
-            data = {"error": data}
-        result.append({'action': action, 'success': success, 'data': data})
-
-    return result
 
 
 def get_name_from_path(path: str) -> str:
@@ -178,7 +43,6 @@ class APIHandlerOptions:
     allowed_methods = []
     required_params = []
     endpoint_name = ''
-    method = print
 
     def __new__(cls, meta=None):
         overrides = {}
@@ -216,10 +80,6 @@ class APIHandler(RequestHandler):
     def __init__(self, application, request, **kwargs):
         self.data = RecordDict()
         self.json_args = {}
-        try:
-            self.internal_params.append('token')
-        except AttributeError:
-            self.internal_params = ['token']
 
         # Initialize internal params.
         for param in self.internal_params:
@@ -268,10 +128,14 @@ class APIHandler(RequestHandler):
             self.json_args = None
 
     def authenticate(self):
-        if self.token == settings.NLP_TOKEN:
-            return True
-        raise HTTPError(403,
-                        reason="Authentication token is invalid or absent!")
+        bearer_token = self.request.headers.get('Authorization', '')
+        bearer_token = bearer_token.replace('Bearer', '').replace('bearer', '')
+        bearer_token = bearer_token.strip()
+        if bearer_token != settings.GEOPACK_TOKEN:
+            raise HTTPError(
+                403,
+                reason="Authentication failed: bearer token is invalid or absent!"
+                )
 
     def prepare(self):
         self.validate_method()
@@ -293,39 +157,76 @@ class APIHandler(RequestHandler):
     def prepare_response(self):
         endpoint_name = [x for x in self.request.path.split('/') if x][-1]
         endpoint_name = endpoint_name.strip().lower()
-        if endpoint_name == 'actions':
-            #TODO:
-            return {}
 
         return {endpoint_name: self.data}
 
 
-class APITextHandler(APIHandler):
-    """
-    Handler for all text-based requests (i.e. requests
-    that must contain `text` as a parameter).
-    """
-    class Meta:
-        required_params = ['text']
-
+class APIGeoJSONHandler(APIHandler):
     def __init__(self, *args, **kwargs):
-        self.internal_params = ['text']
+        # Assume required params should also become internal
+        # params for all GeoJSON API handlers, e.g. required param
+        # "text" becomes `self.text`.
+        # WARNING: Required params should not cross names with system
+        # internal params (i.e. no such params as 'name', 'class', etc.)
+        self.internal_params = self._meta.required_params
         super().__init__(*args, **kwargs)
 
     def post(self, *args, **kwargs):
-        action = get_name_from_path(self.request.path)
-        json_args = self.json_args.copy()
-        lang = json_args.pop('lang', None)
-
-        success, self.data = _do_process_text(self.text,
-                                              lang,
-                                              action,
-                                              **json_args)
+        success = self.get_data()
         if not success:
             raise HTTPError(400, reason=self.data)
 
         resp = self.prepare_response()
         self.write(resp)
+
+    def prepare_response(self):
+        """Re-format to GeoJSON."""
+        return {
+            "type": "FeatureCollection",
+            "crs": {
+                "type": "name",
+                "properties": {
+                    "name": "EPSG:4326"
+                    }
+                },
+            "features": self.data
+        }
+
+    def get_data(self):
+        """Implement it locally in handlers."""
+        raise NotImplementedError()
+
+
+class APIGeoTagHandler(APIGeoJSONHandler):
+    """
+    Geo-tagging API: extracts geo-locations from free text
+    (i.e. requests params must include `text`) and return
+    all places found with coordinates and descriptions in
+    GeoJSON format.
+    """
+    class Meta:
+        required_params = ['text']
+
+    def get_data(self, *args, **kwargs):
+        self.data = {}
+        #TODO: call extractor and geotagger here with **self.json_args
+        return True
+
+
+class APIGeoPlaceHandler(APIGeoJSONHandler):
+    """
+    API for search and geo-locate for a place by its name
+    (i.e. requests params must include `query`) and return
+    top 5 results with coordinates and descriptions in
+    GeoJSON format.
+    """
+    class Meta:
+        required_params = ['query']
+
+    def get_data(self, *args, **kwargs):
+        self.data = {}
+        #TODO: call search and geotagger here with **self.json_args
+        return True
 
 
 class APIListHandler(RequestHandler):
@@ -353,9 +254,9 @@ def make_app():
     urls = [
         url(r"/", MainHandler),
         url(r"/api/", APIListHandler, name="api_list"),
+        url(r"/api/geotag/", APIGeoTagHandler, name="api_geotag"),
+        url(r"/api/geoplace/", APIGeoPlaceHandler, name="api_geoplace"),
         ]
-    for action in API_CONF.endpoints.keys():
-        urls.append(url(f'/api/{action}/', APITextHandler, name=f'api_{action}'))
 
     return Application(urls, autoreload=True)
 
