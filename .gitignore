@@ -103,6 +103,7 @@ celerybeat.pid
 
 # Environments
 .env
+*.env
 .venv
 env/
 venv/
@@ -127,3 +128,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# emacs
+*.py~
+*.~
+*~
+*.#*
+
+# Certificates, keys, etc.
+*.rsa

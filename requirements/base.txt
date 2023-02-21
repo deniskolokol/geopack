@@ -1,0 +1,2 @@
+tornado==6.2
+-e git+ssh://git@gitlab.com/kajo-lib/genery.git#egg=genery

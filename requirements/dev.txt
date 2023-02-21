@@ -1,0 +1,6 @@
+-r base.txt
+
+ipdb>=0.13.11
+ipython>=8.10.0
+jedi>=0.18.2
+pylint>=2.16.2
