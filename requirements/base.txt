@@ -1,2 +1,12 @@
+elasticsearch==7.17.9
+elasticsearch-dsl==7.4.0
+Morfessor==2.0.6
+polyglot==16.7.4
+pycld2==0.41
+PyICU==2.10.2
+spacy==3.5.0
+spacy-udpipe==1.0.0
+tenacity==8.2.1
 tornado==6.2
--e git+ssh://git@gitlab.com/kajo-lib/genery.git#egg=genery
+
+-e git+ssh://git@github.com/deniskolokol/genery.git#egg=genery

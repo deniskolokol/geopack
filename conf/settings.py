@@ -104,32 +104,3 @@ GEOPACK_TOKEN = os.environ.get('GEOPACK_TOKEN', '')
 
 # Default language.
 LANG_DEFAULT = 'en'
-
-
-# NLP features.
-LANG_USING_UDPIPE = ['sk', 'cs', 'fi', 'lv']
-
-# Model names for languages; for languages using spacy_udpipe - it is the same e.g. 'sk':'sk'
-SPACY_LANG_MODEL = {
-    'en': 'en_core_web_sm',
-    'sk': 'sk',
-    'cs': 'cs',
-    'pl' : 'pl_spacy_model',
-    'el' : 'el_core_news_sm',
-    'fi' : 'fi',
-    'lv' : 'lv',
-    'nl' : 'nl_core_news_sm',
-    'it' : 'it_core_news_sm',
-    'es' : 'es_core_news_sm'
-}
-
-# Alternative NER models - for languages which don't have spaCy
-# "all-in-one" model and use spacy_udpipe can be a specific spaCy
-# NER model (e.g. "xx_ent_wiki_sm") or "polyglot" to use polyglot's
-# Named Entity Recognition.
-SPACY_NER_LANG_MODEL = {
-    'sk': 'polyglot',
-    'cs': 'polyglot',
-    'fi': 'polyglot',
-    'lv': 'polyglot'
-}

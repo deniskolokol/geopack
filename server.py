@@ -11,7 +11,7 @@ from tornado.web import url, Application, RequestHandler, HTTPError
 from genery.utils import RecordDict
 
 from conf import settings
-# from nlp.models import Model
+from nlp.models import Model
 
 
 LOG = logging.getLogger("root")
@@ -275,10 +275,8 @@ def init_setup(*args, **kwargs):
     LOG.debug('Initializing setup')
 
     # spaCy
-    LOG.debug('Loading default spaCy model for `%s`: `%s`',
-              settings.LANG_DEFAULT,
-              settings.SPACY_LANG_MODEL[settings.LANG_DEFAULT])
-    # Model().ensure_model(f'spacy.{settings.LANG_DEFAULT}')
+    LOG.debug('Loading default spaCy model for `%s`', settings.LANG_DEFAULT)
+    Model().ensure_model(f'spacy.{settings.LANG_DEFAULT}')
 
     LOG.debug('Initializing complete')
 
