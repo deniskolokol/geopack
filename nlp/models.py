@@ -87,12 +87,14 @@ class Model:
 
     def __init__(self, *args, **kwargs):
         """
-        Only initialize attributes (holders) - the models are
-        being loaded on demand.
+        Initializes attributes (holders), the models are being loaded
+        on lazily on demand, except of the model for _lang_default,
+        which is ensured on load.
+
         Every holder is a dictionary in the form:
         {`lang` <str>: `model` <...>}
         """
-        # The instance maight already be initialized.
+        # The instance could already be initialized.
         try:
             self.spacy
         except AttributeError:
@@ -101,6 +103,8 @@ class Model:
             spacy_langs = dict((l, None) for l
                                in self._spacy_lang_model.keys())
             self.spacy = RecordDict(**spacy_langs)
+
+        self.ensure_model(f'spacy.{self._lang_default}')
 
     def ensure_model(self, path: str):
         """

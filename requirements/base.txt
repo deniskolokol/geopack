@@ -1,11 +1,16 @@
 elasticsearch==7.17.9
 elasticsearch-dsl==7.4.0
+
+# Polyglot and dependencies, that aren't installing automatically
 Morfessor==2.0.6
 polyglot==16.7.4
 pycld2==0.41
 PyICU==2.10.2
+
+# spaCy
 spacy==3.5.0
 spacy-udpipe==1.0.0
+
 tenacity==8.2.1
 tornado==6.2
 

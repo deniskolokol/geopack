@@ -270,17 +270,5 @@ async def main():
     await shutdown_event.wait()
 
 
-def init_setup(*args, **kwargs):
-    """Initial setup: environment variables, paths, loading models, etc."""
-    LOG.debug('Initializing setup')
-
-    # spaCy
-    LOG.debug('Loading default spaCy model for `%s`', settings.LANG_DEFAULT)
-    Model().ensure_model(f'spacy.{settings.LANG_DEFAULT}')
-
-    LOG.debug('Initializing complete')
-
-
 if __name__ == "__main__":
-    init_setup()
     asyncio.run(main())
