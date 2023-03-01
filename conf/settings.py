@@ -104,3 +104,32 @@ GEOPACK_TOKEN = os.environ.get('GEOPACK_TOKEN', '')
 
 # Default language.
 LANG_DEFAULT = 'en'
+
+
+# Elasticsearch
+from elasticsearch import Elasticsearch
+from elasticsearch_dsl.connections import connections as elastic_connections
+
+ES_ALIAS = os.environ.get("ES_ALIAS", "default")
+ES_INDEX_LOC = os.environ.get("ES_INDEX_LOC", "geoloc_v1")
+ES_INDEX_ADM = os.environ.get("ES_INDEX_ADM", "geoadm_v1")
+ES_SHARDS = int(os.environ.get("ES_SHARDS", 1))
+ES_REPLICAS = int(os.environ.get("ES_REPLICAS", 0))
+ES_HOST = os.environ.get("ES_HOST", "127.0.0.1")
+ES_PORT = int(os.environ.get("ES_PORT", 9200))
+ES_HTTP_AUTH = os.environ.get("ES_CREDENTIALS", "").split(":")
+ES_MAIN_TIMESTAMP_FIELD = "last_updated"
+ES_ADM_TIMESTAMP_FIELD = "created_at"
+ES_MAX_RESULTS = 5000
+ES_CONN = {
+    "port": ES_PORT,
+    "http_auth": ES_HTTP_AUTH,
+    "timeout": 30,
+    "max_retries": 10,
+    "retry_on_timeout": True
+    }
+ES_CLIENT = Elasticsearch([ES_HOST], **ES_CONN)
+elastic_connections.add_connection(alias=ES_ALIAS, conn=ES_CLIENT)
+print("\n[>] Elasticsearch: {}:{}".format(ES_HOST, ES_PORT))
+print("Alias: {}".format(ES_ALIAS))
+print("Indices: {}, {}".format(ES_INDEX_LOC, ES_INDEX_ADM))

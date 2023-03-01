@@ -11,7 +11,7 @@ from tornado.web import url, Application, RequestHandler, HTTPError
 from genery.utils import RecordDict
 
 from conf import settings
-from nlp.models import Model
+from geo.parsers import GeoParser
 
 
 LOG = logging.getLogger("root")
@@ -172,7 +172,7 @@ class APIGeoJSONHandler(APIHandler):
         super().__init__(*args, **kwargs)
 
     def post(self, *args, **kwargs):
-        success = self.get_data()
+        success = self.fill_data()
         if not success:
             raise HTTPError(400, reason=self.data)
 
@@ -192,7 +192,7 @@ class APIGeoJSONHandler(APIHandler):
             "features": self.data
         }
 
-    def get_data(self):
+    def fill_data(self):
         """Implement it locally in handlers."""
         raise NotImplementedError()
 
@@ -207,9 +207,15 @@ class APIGeoTagHandler(APIGeoJSONHandler):
     class Meta:
         required_params = ['text']
 
-    def get_data(self, *args, **kwargs):
-        self.data = {}
-        #TODO: call extractor and geotagger here with **self.json_args
+    def fill_data(self, *args, **kwargs):
+        kw = {"include_region": False}
+        kw.update(self.json_args)
+        try:
+            self.data = GeoParser().parse(self.text, **kw)
+        except Exception as exc:
+            self.data = exc
+            return False
+
         return True
 
 
@@ -223,7 +229,7 @@ class APIGeoPlaceHandler(APIGeoJSONHandler):
     class Meta:
         required_params = ['query']
 
-    def get_data(self, *args, **kwargs):
+    def fill_data(self, *args, **kwargs):
         self.data = {}
         #TODO: call search and geotagger here with **self.json_args
         return True
