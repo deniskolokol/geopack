@@ -5,7 +5,8 @@ This module contains classes for geoparsing text, i.e. taking text as an input
 it returns coordinates for each of geo-locations found in the text.
 """
 
-from genery.utils import TextCleaner, flatten_list
+from genery.utils import TextCleaner, flatten_list, distinct_elements
+from genery.decorators import timeit
 
 from src.utils import country_name
 from nlp.extractors import Extractor
@@ -35,8 +36,8 @@ def _get_tokens(rec, *fields, **opts):
 class GeoParser():
     """
     Examples of use:
-    In [1]: geo = GeoParser()
-    In [2]: result = geo.parse("Flooding in Canada with water rescues ongoing. They are using boats also. # Ottawa, Cambridge Bay of Nunavut and Tarbutt", lang="en")
+    In [1]: geo = GeoParser("Flooding in Canada with water rescues ongoing. They are using boats also. # Ottawa, Cambridge Bay of Nunavut and Tarbutt", lang="en")
+    In [2]: print(geo.data)
     """
     class Meta:
         queryset = Place.search
@@ -46,7 +47,6 @@ class GeoParser():
             'placetype',
             'belongsto',
             'hierarchy',
-            'location',
             'iso_country',
             'country',
             'area',
@@ -58,15 +58,13 @@ class GeoParser():
             'geometry'
             ]
         # Fields in the resulting object.
-        fields = [
+        properties = [
             '_id',
             '_score',
-            'place', # name by Extractor
             'name',
             'placetype',
             'belongsto',
             'location',
-            'region',
             'iso_country',
             'country',
             'area',
@@ -75,7 +73,7 @@ class GeoParser():
             'location',
             'timezone',
             'population',
-            'geometry',
+            'hierarchy',
 
             # fields that come from Entity
             'text',
@@ -83,21 +81,40 @@ class GeoParser():
             'end_char',
             'label'
             ]
+
+        # Boost search results that are bigger cities.
         sort = ['-population']
-        plimit = 10 # limit for a query on a single place
 
-    def __init__(self):
+        # Default limit for a query on a single place.
+        plimit = 10
+
+    def __init__(self, text, **kwargs):
         self._xtor = None
-        self.include_region = False
+        self._text = text
+        self.include_region = kwargs.pop('include_region', False)
+        self._lang = kwargs.get('lang', None)
+        self._topn = kwargs.get('topn', self._meta.plimit)
+        self._data = None
+        self._query = None
 
-    def parse(self, text, **kwargs):
+        #TODO:
+        # - def fill_regions(self), which injects regions into self.data
+        # - def fill_hierarchy(self), which injects into self.data
+        #   geo-names instead of ids
+
+    @timeit
+    def parse(self):
         """
         Parses `text` and returns list of found locations.
 
         :return: <list> of <dict>
         """
-        self.include_region = kwargs.pop('include_region', False)
-        self._xtor = Extractor(text, **kwargs)
+        kwargs = {}
+        if self.lang:
+            kwargs = {'lang': self.lang}
+        self._xtor = Extractor(self.text, **kwargs)
+        self._lang = self._xtor.lang
+
         result = []
 
         # The place can occur several times in the text,
@@ -108,7 +125,7 @@ class GeoParser():
             try:
                 found = places_found[place_name]
             except KeyError:
-                found = self.search_place(place_name, topn=1)
+                found = self.search_place(place_name)
                 if found:
                     found = found[0]
                 else:
@@ -119,9 +136,12 @@ class GeoParser():
             if found:
                 result.append(self.dehydrate({**found, **place}))
 
+        # Update self._data.
+        self._data = result
+
         return result
 
-    def search_place(self, place, **kwargs):
+    def search_place(self, place: str) -> list:
         """
         Direct request to the gazetteer in Elastcisearch index.
 
@@ -133,24 +153,44 @@ class GeoParser():
         :param place: <str>
         :return: <list> of <dict>
         """
-        field_names = ["name", "names"]
-        lang = kwargs.get("lang", None)
-        topn = kwargs.get("topn", False)
-        if lang:
-            field_names.append("names_lang.{}".format(lang))
-        query = {
-            "query": {
-                "multi_match": {
-                    "query": place,
-                    "fields": field_names
-                }
-            },
-            "_source": self._meta.source,
-            "size": self._meta.plimit,
-        }
-        qs = self._meta.queryset().from_dict(query)
+        try:
+            self.query['query']['multi_match']['query'] = place
+        except (TypeError, KeyError):
+            self.query = {
+                 'query': {
+                    'multi_match': {
+                        'query': place,
+                        'fields': ['name', 'names'],
+                        'type': 'phrase_prefix'
+                    }
+                },
+                'sort': self._query_sort(),
+                'size': self.topn,
+                '_source': self._query_source(),
+            }
+        return [self.prepare(rec) for rec
+                in self._meta.queryset().from_dict(self.query)]
 
-        return [self.prepare(rec) for rec in qs][:topn]
+    def _query_sort(self, **args):
+        conditions = self._meta.sort + list(args)
+        conditions.append('_score')
+        conditions = distinct_elements(conditions, preserve_order=True)
+
+        sort = []
+        for cond in conditions:
+            if cond.startswith('-'):
+                sort.append({cond[1:]: 'desc'})
+            else:
+                sort.append(cond)
+
+        return sort
+
+    def _query_source(self):
+        _source = self._meta.source[:]
+        if self._lang not in (None, 'xx'):
+            _source.append(f'names_lang.{self.lang}')
+
+        return _source
 
     def prepare(self, rec):
         """
@@ -178,16 +218,23 @@ class GeoParser():
 
         return obj
 
-    def dehydrate(self, rec):
-        """Prepares resulting record."""
-        rec_ = {}
-        for field in self._meta.fields:
+    def dehydrate(self, rec: dict) -> dict:
+        """
+        Prepares resulting record:
+        - makes sure all fields are present (even if val is None)
+        - re-format obj to meet GeoJSON format.
+        """
+        result = {'type': 'Feature'}
+        properties = {}
+        for field in self._meta.properties:
             try:
-                rec_[field] = rec[field]
+                properties[field] = rec[field]
             except KeyError:
-                rec_[field] = None
+                properties[field] = None
 
-        return rec_
+        result.update(properties=properties,
+                      geometry=rec['geometry'])
+        return result
 
     def parse_place(self, text, **filters):
         result = []
@@ -202,140 +249,6 @@ class GeoParser():
             result = [self.dehydrate(hit)]
         finally:
             return result
-
-    def _filter_places(self, hits, locs, place_locs):
-        """
-        Excluds higher elements in hierarchy, e.g., if `hits`
-        contains localities and a region, to which those
-        localities belong, leave only localities.
-
-        :param hits: <dict> {
-            _id <str>: hit <dict>
-            },
-            where `hit` is a search result
-        :param locs: <dict> {
-            _id <str>: belongs_to <list> of <int>
-            }
-        :param place_locs: <dict> {
-            place_name <str>: hits_ids <list> of <str>
-            }
-
-        :return: <list> of <str>
-        """
-        ids_belongsto = set(flatten_list(locs.values()))
-        ids_hilevel = [int(k) for k in hits.keys() if int(k) in ids_belongsto]
-
-        # Remove place branch entirely if any of the hits is in
-        # the list of places that include other places (e.g. if
-        # Ottawa and Canada both found, remove Canada and everything
-        # that found along, i.e. "Canada Bay", etc.).
-        filtered_places = {}
-        for place, loc_ids in place_locs.items():
-            if any(int(_id) in ids_hilevel for _id in loc_ids):
-                continue
-
-            filtered_places.update({place: loc_ids})
-
-        # Use only top scored hits from `places_clean`.
-        result = []
-        filtered_hits = {}
-
-        places_tmp = {}
-
-        for place_name, place_hits in filtered_places.items():
-            _scores = {}
-            _tokens = {}
-            for key, hit in hits.items():
-                if key not in place_hits:
-                    continue
-
-                belongsto_names = [x['name'] for x
-                                   in self.resolve_belongsto(hit)]
-                filtered_hits[key] = hits[key]
-                filtered_hits[key].update({'belongsto': belongsto_names})
-
-                _scores.update({key: filtered_hits[key]['_score']})
-                _tokens.update({key: _get_tokens(filtered_hits[key],
-                                                'belongsto',
-                                                'name')})
-
-            places_tmp[place_name] = _scores
-
-            #TODO: instead of similarity, calculate graph of dictances
-            # between all points and choose the top one for each found
-            # place in filtered_places (algo?)
-            #
-            # Use: utils.haversine
-
-            # Obtain hits similarities for a current place
-            # and use top two for boosting the "_score".
-            #
-            # Top two is essentially a pair of the most similar
-            # items among the highest ranked in search - therefore
-            # they will be boosted equally. This will separate them
-            # from the rest (least similar - like locations in other
-            # regions or countries). Then search _score alone will
-            # decide the winner.
-            similarity = Extractor.similarity(
-                _tokens, **{"threshold": 0.9, "limit": 10, "lang": self.lang}
-                )
-            for rec in similarity[:2]:
-                _scores[rec["id1"]] *= (rec["similarity"] * 10)
-
-            # Convert _scores to <list>, sorting.
-            _scores = [{"key": k, "_score": v} for k, v in _scores.items()]
-            _scores = sorted(_scores, key=lambda x: x["_score"], reverse=True)
-
-            try:
-                result.append(hits[_scores[0]["key"]])
-            except (KeyError, IndexError):
-                continue
-
-        return result
-
-    def parse_places(self, places, **filters):
-        """
-        Search for each place in `places` and returns list of found locations.
-
-        :param places: <list>
-        :return: <list> of <dict>
-        """
-        # Places found in index (hits) with the full info
-        # {hit_id: {data}}.
-        hits = {}
-
-        # Reduced version for obtaining similarity.
-        locs = {}
-
-        # Place names vs. hits' ids (used for removing all hits
-        # for a certain place name if any of them includes other
-        # places).
-        place_locs = {}
-        for place in places:
-            for hit in self.search_place(place, **filters):
-                hit.update(place=place)
-                hits.update({hit["_id"]: hit})
-
-                try:
-                    place_locs[place].append(hit["_id"])
-                except KeyError:
-                    place_locs[place] = [hit["_id"]]
-
-                loc = []
-                try:
-                    loc = [int(bt) for bt in hit["belongsto"]]
-                except KeyError:
-                    pass
-                if loc:
-                    locs.update({hit["_id"]: loc})
-
-        # In case of a single result, all the following jazz is unnesessary.
-        if len(hits) == 1:
-            return [self.dehydrate(list(hits.values())[0])]
-
-        hits_filtered = self._filter_places(hits, locs, place_locs)
-
-        return [self.dehydrate(hit) for hit in hits_filtered]
 
     def build_query(self, place):
         fields = ["name", "names"]
@@ -451,13 +364,27 @@ class GeoParser():
         return region
 
     @property
-    def lang(self):
-        return self._lang
+    def _meta(self): return self.Meta()
 
     @property
-    def xtor(self):
-        return self._xtor
+    def lang(self): return self._lang
 
     @property
-    def _meta(self):
-        return self.Meta()
+    def xtor(self): return self._xtor
+
+    @property
+    def text(self): return self._text
+
+    @property
+    def topn(self): return self._topn
+
+    @property
+    def data(self):
+        # Call for self.parse only if self._data == None,
+        # i.e. instance initialized, but not yet porocessed
+        # (processing can result in empty list, in which case
+        # re-processing the same text is a waste of resources).
+        if self._data is None:
+            self.parse()
+
+        return self._data

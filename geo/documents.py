@@ -63,21 +63,13 @@ class Place(Document):
     Source: Who's On First https://github.com/whosonfirst-data/
     """
     name = Text(required=True)
-    names = Text(required=True, multi=True, fields=LANG_FIELDS)
-
-    area = Float() # ?
-    area_square_m = Float()
-
-    timezone = Keyword()
-    iso_country = Keyword()
-    country = Text()
+    names = Text(required=True, multi=True)
+    names_lang = Text(required=True, multi=True, fields=LANG_FIELDS)
 
     #TODO: figure out how to store the whole hierarchy for faster queries
     belongsto = Integer(multi=True)
-    hierarchy = Nested(Hierarchy) # ?
+    hierarchy = Nested(Hierarchy)
     parent_id = Integer()
-
-    placetype = Keyword(required=True)
 
     tags = Text(multi=True)
 
@@ -93,6 +85,15 @@ class Place(Document):
 
     last_updated = Date()
 
+    timezone = Keyword()
+    iso_country = Keyword()
+    country = Text()
+
+    placetype = Keyword(required=True)
+    area = Float()
+    area_square_m = Float()
+    population = Integer(required=False)
+
     # Whosonfirst github URL and sha for checking if a
     # record should be updated (not required because we do not
     # want to limit the gazetteer by Whosonfirst)
@@ -105,10 +106,6 @@ class Place(Document):
     # (6 levels)
     gadm_id_1 = Integer(required=False, multi=True)
     gadm_region_1 = Text(required=False)
-
-    # WARNING: missing fields
-    # names_lang = ???
-    population = Integer(required=False)
 
     class Index:
         name = settings.ES_INDEX_LOC

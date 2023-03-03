@@ -182,14 +182,14 @@ class APIGeoJSONHandler(APIHandler):
     def prepare_response(self):
         """Re-format to GeoJSON."""
         return {
-            "type": "FeatureCollection",
-            "crs": {
-                "type": "name",
-                "properties": {
-                    "name": "EPSG:4326"
+            'type': 'FeatureCollection',
+            'crs': {
+                'type': 'name',
+                'properties': {
+                    'name': 'EPSG:4326'
                     }
                 },
-            "features": self.data
+            'features': self.data
         }
 
     def fill_data(self):
@@ -211,9 +211,9 @@ class APIGeoTagHandler(APIGeoJSONHandler):
         kw = {"include_region": False}
         kw.update(self.json_args)
         try:
-            self.data = GeoParser().parse(self.text, **kw)
+            self.data = GeoParser(self.text, **kw).data
         except Exception as exc:
-            self.data = exc
+            self.data = {type(exc).__name__: str(exc)}
             return False
 
         return True
